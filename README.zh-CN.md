@@ -10,6 +10,7 @@
 | --- | --- |
 | [`readme-i18n`](skills/readme-i18n/SKILL.md) | 双语（英文 + 简体中文）README 与语言切换；让 Gitee 按浏览器语言自动显示对应 README，而 GitHub 保持显示英文。 |
 | [`git-commit-workflow`](skills/git-commit-workflow/SKILL.md) | 先验证、可独立回退的阶段性提交；每个绿色切片尽早提交，精确暂存，多代理协作，错误提交恢复，并保持生成物不入库。 |
+| [`design-notes`](skills/design-notes/SKILL.md) | 决策优先的分阶段英文设计笔记：问题与约束、被否决的方案、最终方案、权衡与已接受风险；实现过程中编写、与功能一起提交，持久决策提升为 ADR。 |
 
 ## 目录结构
 
@@ -18,6 +19,8 @@ skills/
   readme-i18n/
     SKILL.md
   git-commit-workflow/
+    SKILL.md
+  design-notes/
     SKILL.md
 ```
 
