@@ -9,12 +9,15 @@
 | 技能 | 说明 |
 | --- | --- |
 | [`readme-i18n`](skills/readme-i18n/SKILL.md) | 双语（英文 + 简体中文）README 与语言切换；让 Gitee 按浏览器语言自动显示对应 README，而 GitHub 保持显示英文。 |
+| [`git-commit-workflow`](skills/git-commit-workflow/SKILL.md) | 先验证、可独立回退的阶段性提交；每个绿色切片尽早提交，精确暂存，多代理协作，错误提交恢复，并保持生成物不入库。 |
 
 ## 目录结构
 
 ```
 skills/
   readme-i18n/
+    SKILL.md
+  git-commit-workflow/
     SKILL.md
 ```
 

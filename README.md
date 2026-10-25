@@ -9,12 +9,15 @@ A collection of Agent Skills (`SKILL.md`) for OpenCode / Claude Code–style age
 | Skill | Description |
 | --- | --- |
 | [`readme-i18n`](skills/readme-i18n/SKILL.md) | Bilingual (English + Simplified Chinese) READMEs with a language switcher; makes Gitee auto-select the localized README while GitHub keeps showing English. |
+| [`git-commit-workflow`](skills/git-commit-workflow/SKILL.md) | Verified, rollback-sized, phase-gated Git commits with conventional messages; commit verified slices early, stage deliberately, coordinate multi-agent work, recover safely, and keep generated artifacts out of Git. |
 
 ## Layout
 
 ```
 skills/
   readme-i18n/
+    SKILL.md
+  git-commit-workflow/
     SKILL.md
 ```
 
