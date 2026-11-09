@@ -1,21 +1,36 @@
 ---
 name: notes-vault
-description: "Read, write, search and reorganize notes in the self-hosted Obsidian vault `notes` at 10.8.0.6 over the obsidian MCP server. Use when the user says 记到笔记里 / 记在笔记中 / 写进笔记库 / 查一下笔记 / 整理笔记, or when a task needs the vault's conventions (work summary, projects, publish, daily kb, plans). Covers the safe edit_note operations (patch vs replace), image upload rules, and the archive/naming contract that the vault README defines."
+description: "Read, write, search and reorganize notes in a self-hosted Obsidian vault over an obsidian MCP server. Use when the user says 记到笔记里 / 记在笔记中 / 写进笔记库 / 查一下笔记 / 整理笔记, or when a task needs the vault's conventions (work summary, projects, publish, daily kb, plans). Covers the safe edit_note operations (patch vs replace), image upload rules, and the archive/naming contract that the vault README defines. The server endpoint is NOT hardcoded here — read it from your agent's MCP config."
 license: MIT
 metadata:
-  version: "1.0"
+  version: "1.1"
   author: Zouyu
 ---
 
-# 笔记库 skill（vault `notes`）
+# 笔记库 skill（Obsidian vault）
 
-用户说「笔记 / notes / vault / 知识库 / 记到笔记里」时，一律指 **10.8.0.6 上自托管的 Obsidian 服务**，不是工作区里的 md 文件。
+用户说「笔记 / notes / vault / 知识库 / 记到笔记里」时，一律指**自托管的 Obsidian 服务**，不是工作区里的 md 文件。
 
-完整操作性文档在 `notes-system/`（工作区内），本 skill 是给 agent 用的执行摘要。
+本 skill 面向的是：[`obsidian-mcp-http`](https://github.com/mrchipset/obsidian-mcp-http) —— 一个给 Obsidian vault 提供 MCP 接口的服务端（fork 自 [StevenStavrakis/obsidian-mcp](https://github.com/StevenStavrakis/obsidian-mcp)，MIT）。
+
+## 先取端点，别猜
+
+⚠️ **本 skill 不包含任何服务器地址、端口或 token。** 这些是部署方私有的，写死在文档里既会过时也会泄露拓扑。
+
+用之前先按顺序取：
+
+1. **读你的 MCP 客户端配置**，找名为 `obsidian` 的 server，取它的 `url`（Streamable HTTP 端点）与鉴权头。
+   - DSH：`~/.dsh/profiles/<profile>/cordis.patch.yml`（`mcp-obsidian` 条目）
+   - opencode：`~/.config/opencode/opencode.json`（`mcp.obsidian`）
+   - Claude Code / 其他：对应的 `mcpServers` 配置
+2. 配置里没有 → 问用户要端点，**不要自己扫描网段**。
+3. vault id 不确定 → 调 `obsidian_list_vaults`。
+
+配置格式见 [references/clients.md](references/clients.md)。
 
 ## 落地前先确认三件事
 
-1. **vault id**：只有 `notes`。不确定时 `obsidian_list_vaults`。
+1. **vault id**：不确定时 `obsidian_list_vaults`。
 2. **写在哪**：见下方「归档决策」，或直接读 vault 根目录的 `README.md`（那是规则源，本 skill 不复制它）。
 3. **怎么改**：见「操作选用」，这是最容易出错的部分。
 
@@ -67,10 +82,12 @@ metadata:
 
 ## 图片
 
-**图片不走 MCP，走 `POST /upload`**：
+**图片不走 MCP，走 `<MCP 端点所在的 host>/upload`**：
 
 ```bash
-curl -X POST http://10.8.0.6:8811/upload \
+# $MCP_URL 从客户端配置里取，例如 http://<host>:<port>/mcp
+# 上传端点是把它最后的 /mcp 换成 /upload
+curl -X POST "${MCP_URL%/mcp}/upload" \
   -H "Authorization: Bearer $MCP_API_KEY" \
   -F vault=notes -F "path=<vault 相对路径>" -F file=@local.png
 ```
@@ -78,22 +95,23 @@ curl -X POST http://10.8.0.6:8811/upload \
 - 只收 `png jpg jpeg webp gif svg pdf`；**文本不能上传**（`.md`/`.py` 一律 415）
 - 上传上限 20 MiB；默认不覆盖，要覆盖加 `-F overwrite=true`
 - PowerShell 下用 `curl.exe`，**不要用 `Invoke-WebRequest -Form`**（报 400 multipart 解析失败）
-- AI 读图用 resource：`obsidian-mcp://vaults/notes/files/<相对路径>`（上限 10 MiB）
+- AI 读图用 resource：`obsidian-mcp://vaults/<vaultId>/files/<相对路径>`（上限 10 MiB）
 - 引用：同目录唯一文件名可短链；**会重名的地方（如每篇稿子的 `封面.png`）必须带路径**
 
 ## 不要做的事
 
-1. **不要用本地 `write` / `edit` 改 vault 文件**——vault 在 10.8.0.6，路径在工作区外，改了不生效还绕过 etag 与事务日志。
+1. **不要用本地 `write` / `edit` 改 vault 文件**——vault 在远端主机上，用本地文件工具改不生效，还会绕过 etag 与事务日志。
 2. **不要对 `replace` 只传片段**——哪怕只想改 frontmatter 一行，那也算整篇重写。
 3. **不要凭记忆重建**——Obsidian 会就地格式化 Markdown（表格对齐被重排），重建必须以 `read_note` 读回的原文为准，并标注「重建版」。
-4. **不要拿 `C:\Users\Zouyu\tmp\notes\vaults\test` 当事实来源**——旧副本，与线上不同步。
+4. **不要把任何本地部署路径当事实来源**——「本机有一份 vault 副本」通常是旧的，以 MCP 读到的为准。
+5. **不要在文档里写死服务器地址**——端点一律从配置取。
 
 ## 收尾检查
 
 写完后：
 
 - `read_note` 核对 `total_characters` 是否符合预期（尤其用了 `replace` 时）
-- 新增的笔记如果有索引（`projects/项目索引.md`、`DSH 索引`），补一行登记
+- 新增的笔记如果有索引（如 `projects/项目索引.md`），补一行登记
 - 移动/改名后检查 `updated_backlinks` 与 `ambiguous_links`
 
 ## 相关文档
@@ -105,8 +123,8 @@ curl -X POST http://10.8.0.6:8811/upload \
 - [references/clients.md](references/clients.md) —— DSH / opencode / Codex 的配置写法
 - [references/INDEX.md](references/INDEX.md) —— 上述文档的索引与事实基线
 
-vault 内：
+外部：
 
-- `README.md` —— 归档与命名规则的唯一真源
-- `notes-mcp-usage/README.md` —— 服务的部署与运维视角
-- `daily kb/2026-11-08-obsidian-edit-note-replace整篇覆盖.md` —— 那次事故的完整记录
+- [obsidian-mcp-http](https://github.com/mrchipset/obsidian-mcp-http) —— 服务端源码（Gitee 镜像：<https://gitee.com/mrchip233/obsidian-mcp-http>）
+- [StevenStavrakis/obsidian-mcp](https://github.com/StevenStavrakis/obsidian-mcp) —— 上游项目
+- vault 内的 `README.md` —— 归档与命名规则的唯一真源

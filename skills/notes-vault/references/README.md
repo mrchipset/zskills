@@ -1,38 +1,37 @@
-# 笔记系统
+# notes-vault · 服务参考
 
-自托管 Obsidian 笔记服务（vault `notes`）的**完整使用手册**：怎么连、怎么读写、怎么传图、怎么给各个 AI 工具配好。
+[`obsidian-mcp-http`](https://github.com/mrchipset/obsidian-mcp-http) 是一个给 Obsidian vault 提供 MCP 接口的服务端。核心能力：把 Markdown 文件当作数据库，通过 MCP 工具读写，带 etag 并发校验与事务日志。
 
-> 本目录是**操作性文档**。笔记库本身的归档规则不在这里，在 vault 根目录的 `README.md`（那份是给「写什么、写在哪」用的；这里讲「怎么连、怎么调」）。
+> 事实基线：**2026-11-08**，服务版本 `obsidian-mcp-server 2.2.0`。
 >
-> 事实核对日期：**2026-11-08**。服务版本 `obsidian-mcp-server 2.2.0`。
+> ⚠️ **本文不含任何服务器地址、端口或 token。** 端点从你的 MCP 客户端配置里取，见 [clients.md](clients.md)。
 
-## 目录
-
-| 文件 | 内容 |
-|---|---|
-| [README.md](README.md) | 本文件：服务信息、端点、鉴权、工具清单、常见问题 |
-| [upload-images.md](upload-images.md) | 图片与附件的四条上传通道，含状态码与踩坑 |
-| [clients.md](clients.md) | DSH / opencode / Codex 三种客户端的完整配置与验证 |
-| [skills/](skills/) | 可复用的 skill 定义 |
-
-## 一、服务是什么
+## 一、它是什么
 
 | 项 | 值 |
 |---|---|
-| 运行主机 | 局域网 **10.8.0.6** |
-| 服务名（compose） | `obsidian-mcp`，编排仓库在本机 `C:\Users\Zouyu\tmp\notes` |
-| MCP 端点 | `http://10.8.0.6:8811/mcp`（Streamable HTTP） |
-| 上传端点 | `http://10.8.0.6:8811/upload`（同一个 Bearer） |
-| 浏览器版 Obsidian（ignis） | <http://10.8.0.6:8880> |
-| vault id | `notes`（唯一一个） |
-| 源仓库 | `C:\Users\Zouyu\repos\obsidian-mcp-http`（fork 自 StevenStavrakis/obsidian-mcp，MIT） |
-| 版本 | `2.2.0`（`SERVER_VERSION` 读 package.json） |
+| 源码 | <https://github.com/mrchipset/obsidian-mcp-http>（MIT） |
+| 镜像 | <https://gitee.com/mrchip233/obsidian-mcp-http> |
+| 上游 | <https://github.com/StevenStavrakis/obsidian-mcp> |
+| 语言 | TypeScript / Node.js 22+ |
+| 传输 | Streamable HTTP（也可 stdio） |
+| 默认端口 | MCP 服务 `8787`（compose 常映射成别的端口，以配置为准） |
+| vault id | 由 `--vault id=/abs/path` 定义；一个服务可挂多个 |
 
 **它不是** Obsidian 插件，不要求 Obsidian 在运行——它直接读写 Markdown 文件。
 
-## 二、鉴权
+## 二、端点约定
 
-所有请求都要带同一个 Bearer token：
+| 端点 | 路径 | 说明 |
+|---|---|---|
+| MCP | `<base>/mcp` | Streamable HTTP，默认路径可被 `--path` 改 |
+| 上传 | `<base>/upload` | 固定保留，即使 MCP 路径改了也不变 |
+
+**`<base>` 从客户端配置取**。常见形态是 `http://<host>:<port>`，host 与 port 属于部署方私有信息，不写进本 skill。
+
+## 三、鉴权
+
+所有请求带同一个 Bearer token：
 
 ```text
 Authorization: Bearer <MCP_API_KEY>
@@ -40,14 +39,16 @@ Authorization: Bearer <MCP_API_KEY>
 
 token 存在两处，**值必须一致**：
 
-1. **部署机** `10.8.0.6` 上 `obsidian-notes` 仓库的 `.env`（变量 `MCP_API_KEY`）
-2. **本机**各客户端的配置里（见 [clients.md](clients.md)）
+1. **部署机**上编排仓库的 `.env`（变量 `MCP_API_KEY`）
+2. **本机**各客户端的配置里
 
-> ⚠️ 本机配置里目前有明文 token（历史遗留）。新增配置时按用户级规则用 `!!js process.env.XXX` 或 credentials，不要照抄明文。
+冒号后的部分按 `--auth-token` → `OBSIDIAN_MCP_HTTP_TOKEN` → `MCP_API_KEY` 的顺序解析。
 
-**401 的唯一原因**：两边不一致。改完必须在 10.8.0.6 上重启容器才生效。
+> ⚠️ 不要把 token 抄进笔记或文档。新增配置时用环境变量或 credentials 引用。
 
-## 三、工具清单（12 个）
+**401 的唯一原因**：两边不一致。改完必须在部署机重启容器才生效。
+
+## 四、工具清单（12 个）
 
 | 分类 | 工具 | 说明 |
 |---|---|---|
@@ -92,54 +93,45 @@ content: "<完整全文>"
 base_chars: 1828
 ```
 
-> 事故始末见 vault 的 `daily kb/2026-11-08-obsidian-edit-note-replace整篇覆盖`。
-
-## 四、并发与版本
+## 五、并发与版本
 
 - 写前先 `obsidian_read_note` 拿 `etag`，写时作为 `if_match` 传入。
 - 冲突返回 `REVISION_CONFLICT`：重新读一遍取新 etag 再写。
 - 所有写操作都有事务：`.obsidian-mcp` 下有日志，失败会回滚。
 
-## 五、资源读取（AI 看图）
+## 六、资源读取（AI 看图）
 
 ```text
-obsidian-mcp://vaults/notes/files/<vault 相对路径>
+obsidian-mcp://vaults/<vaultId>/files/<vault 相对路径>
 ```
 
 - 文本扩展名返回 `text`；png/jpeg/webp/gif/svg/pdf 返回 base64 `blob`
 - 单文件上限 `RESOURCE_MAX_BYTES`，默认 **10 MiB**
 - base64 会进上下文，大图先压到 1 MB 以内
 
-## 六、常见问题
+## 七、常见问题
 
 | 现象 | 原因与处理 |
 |---|---|
 | `401 Unauthorized` | Bearer 与部署机 `.env` 不一致；改完要重启容器 |
-| 连接失败 / 工具不可用 | 先确认 10.8.0.6 的 `8811` / `8880` 通；再在部署机上 `docker ps` 看 `obsidian-mcp` 是否 Up |
-| 写入后 ignis 看不到 | 属主不一致（应为 PUID/PGID 1000）或 watcher 补丁缺失 |
+| 连接失败 / 工具不可用 | 先确认配置里的 host/port 可达；再在部署机上 `docker ps` 看服务是否 Up |
+| 写入后浏览器版看不到 | 属主不一致（应为 PUID/PGID 1000）或 watcher 补丁缺失 |
 | 上传 415 | 扩展名不在白名单（只允许图片和 PDF，**文本不能上传**） |
 | 上传 413 | 超过 `UPLOAD_MAX_BYTES`（默认 20 MiB） |
 | `if_match` 冲突 | 重新读笔记取新 etag |
 
-## 七、本机环境里的两个坑
+## 八、两个环境相关的坑
 
-**1. 不要用 `write` / `edit` 工具改 vault 文件。**
+**1. 不要用本地 `write` / `edit` 工具改 vault 文件。**
 
-vault 在 10.8.0.6 上，路径在工作区之外。用本地文件工具改它既不生效，也会绕过 etag 与事务日志。**vault 的一切读写都走 MCP。**
+vault 在远端主机上，不在本地工作区。用本地文件工具改它不生效，还会绕过 etag 与事务日志。**vault 的一切读写都走 MCP。**
 
-**2. Chrome 无头截图在本机沙箱里不可用。**
+**2. 无头 Chrome 截图在受限沙箱里可能不可用。**
 
-生成配图时试过 `chrome --headless --screenshot`，报：
-
-```text
-mojo\public\cpp\platform\platform_channel.cc:112 Check failed: Access is denied. (0x5)
-EPERM: spawnSync chrome.exe
-```
-
-沙箱禁止创建子进程和命名管道。**替代方案：Python + Pillow 直接绘图**（见 `publish/` 里那篇 MCP 护栏文章的附录脚本）。
+若 `chrome --headless --screenshot` 报 `mojo platform_channel: Access is denied` 或 `EPERM: spawnSync`，说明环境禁止创建子进程。**替代方案：Python + Pillow 直接绘图**（见 [upload-images.md](upload-images.md) 第七节）。
 
 ## 相关
 
-- vault 内归档规则：`notes` vault 根目录的 `README.md`
-- 笔记服务自身的部署文档：`notes-mcp-usage/`（vault 内）
-- 本项目设计：`projects/personal/obsidian-mcp/design/README.md`（vault 内）
+- 配置写法：[clients.md](clients.md)
+- 上传细节：[upload-images.md](upload-images.md)
+- 服务端源码与 issue：<https://github.com/mrchipset/obsidian-mcp-http>
